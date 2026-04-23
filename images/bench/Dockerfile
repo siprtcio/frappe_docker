@@ -156,9 +156,11 @@ FROM bench AS bench-test
 RUN node --version \
     && npm --version \
     && yarn --version \
-    && bench --help
+    && bench --help \
+    && bench migrate
 
 RUN bash -c "node --version" \
     && bash -c "npm --version" \
     && bash -c "yarn --version" \
-    && bash -c "bench --help"
+    && bash -c "bench --help" \
+    && bash -c "bench migrate"
