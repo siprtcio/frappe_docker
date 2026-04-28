@@ -1,0 +1,95 @@
+# version: 2.1
+
+# orbs:
+#   aws-ecr: circleci/aws-ecr@8.1.2
+
+# parameters:
+#   manual_trigger:
+#     type: boolean
+#     default: false
+ 
+# executors:
+#   default-ubuntu:
+#     machine:
+#       image: default
+
+# workflows:
+#   build_and_push_image:
+#     when:
+#       or:
+#         - equal: [ master, << pipeline.git.branch >> ]
+#         - << pipeline.parameters.manual_trigger >>
+#     jobs:
+#       - aws-ecr/build-and-push-image:
+#           executor: default-ubuntu
+#           context: SIPRTCIO
+#           create-repo: true
+#           repo: "${CIRCLE_PROJECT_REPONAME}"
+#           region: ${AWS_REGION}
+#           tag: "${CIRCLE_BUILD_NUM}"
+#           dockerfile: pwd.yml
+#           path: .
+
+version: 2.1
+
+parameters:
+  manual_trigger:
+    type: boolean
+    default: false
+
+executors:
+  default-ubuntu:
+    machine:
+      image: default
+
+jobs:
+  build_and_push_image:
+    executor: default-ubuntu
+    steps:
+      - checkout
+
+      - run:
+          name: Encode apps.json
+          command: |
+            export APPS_JSON_BASE64=$(cat apps.json | base64 | tr -d '\n')
+            echo "export APPS_JSON_BASE64=$APPS_JSON_BASE64" >> $BASH_ENV
+
+      - run:
+          name: Verify apps.json
+          command: |
+            source $BASH_ENV
+            echo "$APPS_JSON_BASE64" | base64 -d
+
+      - run:
+          name: Docker Login to ECR
+          command: |
+            aws ecr get-login-password --region $AWS_REGION \
+            | docker login --username AWS --password-stdin $AWS_ECR_ACCOUNT_URL
+
+      - run:
+          name: Build Image
+          command: |
+            source $BASH_ENV
+
+            docker build \
+              --build-arg FRAPPE_PATH=https://github.com/frappe/frappe \
+              --build-arg FRAPPE_BRANCH=version-15 \
+              --build-arg APPS_JSON_BASE64=$APPS_JSON_BASE64 \
+              -t $AWS_ECR_ACCOUNT_URL/${CIRCLE_PROJECT_REPONAME}:${CIRCLE_BUILD_NUM} \
+              -f images/layered/Containerfile \
+              .
+
+      - run:
+          name: Push Image
+          command: |
+            docker push $AWS_ECR_ACCOUNT_URL/${CIRCLE_PROJECT_REPONAME}:${CIRCLE_BUILD_NUM}
+
+workflows:
+  build_and_push:
+    when:
+      or:
+        - equal: [ master, << pipeline.git.branch >> ]
+        - << pipeline.parameters.manual_trigger >>
+    jobs:
+      - build_and_push_image:
+          context: SIPRTCIO
