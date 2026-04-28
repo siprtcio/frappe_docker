@@ -61,13 +61,33 @@ jobs:
             echo "$APPS_JSON_BASE64" | base64 -d
 
       - run:
-          name: Docker Login to ECR
+          name: Prepare Docker Tag
+          command: |
+            # Sanitize branch name
+            TAG=$(echo "$CIRCLE_BRANCH" | sed 's/[^a-zA-Z0-9_.-]/-/g')
+            SHORT_SHA=${CIRCLE_SHA1:0:7}
+            FINAL_TAG="${TAG}-${SHORT_SHA}"
+
+            echo "export IMAGE_TAG=$FINAL_TAG" >> $BASH_ENV
+
+      - run:
+          name: Login to AWS ECR
           command: |
             aws ecr get-login-password --region $AWS_REGION \
             | docker login --username AWS --password-stdin $AWS_ECR_ACCOUNT_URL
 
       - run:
-          name: Build Image
+          name: Ensure ECR repo exists
+          command: |
+            aws ecr describe-repositories \
+              --repository-names ${CIRCLE_PROJECT_REPONAME} \
+              --region $AWS_REGION \
+            || aws ecr create-repository \
+              --repository-name ${CIRCLE_PROJECT_REPONAME} \
+              --region $AWS_REGION
+
+      - run:
+          name: Build Docker Image
           command: |
             source $BASH_ENV
 
@@ -75,14 +95,16 @@ jobs:
               --build-arg FRAPPE_PATH=https://github.com/frappe/frappe \
               --build-arg FRAPPE_BRANCH=version-15 \
               --build-arg APPS_JSON_BASE64=$APPS_JSON_BASE64 \
-              -t $AWS_ECR_ACCOUNT_URL/${CIRCLE_PROJECT_REPONAME}:${CIRCLE_BUILD_NUM} \
+              -t $AWS_ECR_ACCOUNT_URL/${CIRCLE_PROJECT_REPONAME}:$IMAGE_TAG \
               -f images/layered/Containerfile \
               .
 
       - run:
-          name: Push Image
+          name: Push Docker Image
           command: |
-            docker push $AWS_ECR_ACCOUNT_URL/${CIRCLE_PROJECT_REPONAME}:${CIRCLE_BUILD_NUM}
+            source $BASH_ENV
+
+            docker push $AWS_ECR_ACCOUNT_URL/${CIRCLE_PROJECT_REPONAME}:$IMAGE_TAG
 
 workflows:
   build_and_push:
