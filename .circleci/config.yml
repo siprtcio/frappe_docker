@@ -61,14 +61,14 @@ jobs:
             echo "$APPS_JSON_BASE64" | base64 -d
 
       - run:
-          name: Prepare Docker Tag
+          name: Prepare ECR repository name and image tag
           command: |
-            # Sanitize branch name
-            TAG=$(echo "$CIRCLE_BRANCH" | sed 's/[^a-zA-Z0-9_.-]/-/g')
-            SHORT_SHA=${CIRCLE_SHA1:0:7}
-            FINAL_TAG="${TAG}-${SHORT_SHA}"
+            # ECR repo name from branch (AWS-safe characters)
+            ECR_REPO_NAME=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_.-]/-/g' | sed 's/^-*//;s/-*$//')
 
-            echo "export IMAGE_TAG=$FINAL_TAG" >> $BASH_ENV
+            # Incrementing integer per pipeline (same scope as CircleCI UI build number)
+            echo "export ECR_REPO_NAME=$ECR_REPO_NAME" >> $BASH_ENV
+            echo "export IMAGE_TAG=${CIRCLE_BUILD_NUM}" >> $BASH_ENV
 
       - run:
           name: Login to AWS ECR
@@ -79,11 +79,12 @@ jobs:
       - run:
           name: Ensure ECR repo exists
           command: |
+            source $BASH_ENV
             aws ecr describe-repositories \
-              --repository-names ${CIRCLE_PROJECT_REPONAME} \
+              --repository-names ${ECR_REPO_NAME} \
               --region $AWS_REGION \
             || aws ecr create-repository \
-              --repository-name ${CIRCLE_PROJECT_REPONAME} \
+              --repository-name ${ECR_REPO_NAME} \
               --region $AWS_REGION
 
       - run:
@@ -95,7 +96,8 @@ jobs:
               --build-arg FRAPPE_PATH=https://github.com/frappe/frappe \
               --build-arg FRAPPE_BRANCH=version-15 \
               --build-arg APPS_JSON_BASE64=$APPS_JSON_BASE64 \
-              -t $AWS_ECR_ACCOUNT_URL/${CIRCLE_PROJECT_REPONAME}:$IMAGE_TAG \
+              --build-arg GITHUB_TOKEN=${GITHUB_TOKEN} \
+              -t $AWS_ECR_ACCOUNT_URL/${ECR_REPO_NAME}:$IMAGE_TAG \
               -f images/layered/Containerfile \
               .
 
@@ -104,7 +106,7 @@ jobs:
           command: |
             source $BASH_ENV
 
-            docker push $AWS_ECR_ACCOUNT_URL/${CIRCLE_PROJECT_REPONAME}:$IMAGE_TAG
+            docker push $AWS_ECR_ACCOUNT_URL/${ECR_REPO_NAME}:$IMAGE_TAG
 
 workflows:
   build_and_push:
