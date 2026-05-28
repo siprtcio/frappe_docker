@@ -12,7 +12,7 @@
       "branch": "stripe-plus"
     },
     {
-      "url": "https://github.com/siprtcio/billing_customizations.git",
+      "url": "__GITHUB_TOKEN__@github.com/siprtcio/billing_customizations.git",
       "branch": "develop"
     }
 ]
