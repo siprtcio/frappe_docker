@@ -17,6 +17,16 @@ jobs:
       - checkout
 
       - run:
+          name: Verify GitHub Token
+          command: |
+            if [ -z "$GITHUB_TOKEN" ]; then
+              echo "GITHUB_TOKEN is EMPTY"
+              exit 1
+            else
+              echo "GITHUB_TOKEN exists"
+            fi
+
+      - run:
           name: Encode apps.json
           command: |
             export APPS_JSON_BASE64=$(cat apps.json | base64 | tr -d '\n')
