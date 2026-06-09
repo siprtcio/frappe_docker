@@ -2,7 +2,7 @@ version: "3"
 
 services:
   backend:
-    image: dhruvsiprtc/erpapp:2.0.12
+    image: dhruvsiprtc/erpapp:1.0.11
     networks:
       - frappe_network
     deploy:
@@ -13,10 +13,12 @@ services:
       - logs:/home/frappe/frappe-bench/logs
     environment:
       DB_HOST: db
-      DB_PORT: "5432"
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
 
   configurator:
-    image: dhruvsiprtc/erpapp:2.0.12
+    image: dhruvsiprtc/erpapp:1.0.11
     networks:
       - frappe_network
     deploy:
@@ -28,16 +30,15 @@ services:
     command:
       - >
         ls -1 apps > sites/apps.txt;
-        [[ -f sites/common_site_config.json ]] || echo "{}" > sites/common_site_config.json;
-        bench set-config -gp db_port $$DB_PORT;
         bench set-config -g db_host $$DB_HOST;
+        bench set-config -gp db_port $$DB_PORT;
         bench set-config -g redis_cache "redis://$$REDIS_CACHE";
         bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
         bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
         bench set-config -gp socketio_port $$SOCKETIO_PORT;
     environment:
       DB_HOST: db
-      DB_PORT: "5432"
+      DB_PORT: "3306"
       REDIS_CACHE: redis-cache:6379
       REDIS_QUEUE: redis-queue:6379
       SOCKETIO_PORT: "9000"
@@ -46,7 +47,7 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   create-site:
-    image: dhruvsiprtc/erpapp:2.0.12
+    image: dhruvsiprtc/erpapp:1.0.11
     networks:
       - frappe_network
     deploy:
@@ -60,6 +61,9 @@ services:
       - -c
     command:
       - >
+        wait-for-it -t 120 db:3306;
+        wait-for-it -t 120 redis-cache:6379;
+        wait-for-it -t 120 redis-queue:6379;
         export start=`date +%s`;
         until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
           [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
@@ -73,60 +77,37 @@ services:
           fi
         done;
         echo "sites/common_site_config.json found";
-        echo "Waiting for database to be reachable...";
-        wait-for-it -t 120 $$DB_HOST:$$DB_PORT;
-        echo "Database is reachable.";
-        bench_output=$$(bench new-site $$SITE_NAME \
-          --no-mariadb-socket \
-          --db-type=$$DB_TYPE \
-          --db-host=$$DB_HOST \
-          --db-port=$$DB_PORT \
-          --admin-password=$$ADMIN_PASSWORD \
-          --mariadb-root-username=$$DB_ROOT_USER \
-          --mariadb-root-password=$$DB_ROOT_PASSWORD \
-          --install-app erpnext \
-          --install-app payments \
-          --install-app erpusa \
-          --install-app billing_customizations \
-          --force 2>&1 | tee /dev/stderr);
-        bench_exit_status=$$?;
-        if [ $$bench_exit_status -ne 0 ]; then
-          if [[ "$$bench_output" == *"already exists"* ]]; then
-            echo "Site already exists, continuing...";
-          else
-            echo "An error occurred in bench new-site: $$bench_output";
-            exit $$bench_exit_status;
-          fi
-        fi;
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
+        bench install-app payments;
+        bench install-app erpusa;
+        bench install-app billing_customizations;
         bench set-config -g server_script_enabled 1;
-        bench --site $$SITE_NAME migrate;
-    environment:
-      SITE_NAME: frontend
-      DB_TYPE: postgres
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_ROOT_USER: postgres
-      DB_ROOT_PASSWORD: admin
-      ADMIN_PASSWORD: admin
+        bench migrate;
 
   db:
-    image: postgres:16
+    image: mariadb:10.6
     networks:
       - frappe_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: mysqladmin ping -h localhost --password=admin
       interval: 1s
       retries: 20
     deploy:
       restart_policy:
         condition: on-failure
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed # Temporary fix for MariaDB 10.6
     environment:
-      POSTGRES_PASSWORD: admin
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - db-data:/var/lib/mysql
 
   frontend:
-    image: dhruvsiprtc/erpapp:2.0.12
+    image: dhruvsiprtc/erpapp:1.0.11
     networks:
       - frappe_network
     depends_on:
@@ -152,7 +133,7 @@ services:
       - "8080:8080"
 
   queue-long:
-    image: dhruvsiprtc/erpapp:2.0.12
+    image: dhruvsiprtc/erpapp:1.0.11
     networks:
       - frappe_network
     deploy:
@@ -171,7 +152,7 @@ services:
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
 
   queue-short:
-    image: dhruvsiprtc/erpapp:2.0.12
+    image: dhruvsiprtc/erpapp:1.0.11
     networks:
       - frappe_network
     deploy:
@@ -208,7 +189,7 @@ services:
         condition: on-failure
 
   scheduler:
-    image: dhruvsiprtc/erpapp:2.0.12
+    image: dhruvsiprtc/erpapp:1.0.11
     networks:
       - frappe_network
     deploy:
@@ -222,7 +203,7 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   websocket:
-    image: dhruvsiprtc/erpapp:2.0.12
+    image: dhruvsiprtc/erpapp:1.0.11
     networks:
       - frappe_network
     deploy:
