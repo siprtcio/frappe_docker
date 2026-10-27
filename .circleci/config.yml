@@ -1,99 +1,102 @@
-version: 2.1
-
-parameters:
-  manual_trigger:
-    type: boolean
-    default: false
-
-executors:
-  default-ubuntu:
-    machine:
-      image: default
-
-jobs:
-  build_and_push_image:
-    executor: default-ubuntu
-    steps:
-      - checkout
-
-      - run:
-          name: Verify GitHub Token
-          command: |
-            if [ -z "$GITHUB_TOKEN" ]; then
-              echo "GITHUB_TOKEN is EMPTY"
-              exit 1
-            else
-              echo "GITHUB_TOKEN exists"
-            fi
-
-      - run:
-          name: Encode apps.json
-          command: |
-            export APPS_JSON_BASE64=$(cat apps.json | base64 | tr -d '\n')
-            echo "export APPS_JSON_BASE64=$APPS_JSON_BASE64" >> $BASH_ENV
-
-      - run:
-          name: Verify apps.json
-          command: |
-            source $BASH_ENV
-            echo "$APPS_JSON_BASE64" | base64 -d
-
-      - run:
-          name: Prepare ECR repository name and image tag
-          command: |
-            # ECR repo name from branch (AWS-safe characters)
-            ECR_REPO_NAME=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_.-]/-/g' | sed 's/^-*//;s/-*$//')
-
-            # Incrementing integer per pipeline (same scope as CircleCI UI build number)
-            echo "export ECR_REPO_NAME=$ECR_REPO_NAME" >> $BASH_ENV
-            echo "export IMAGE_TAG=${CIRCLE_BUILD_NUM}" >> $BASH_ENV
-
-      - run:
-          name: Login to AWS ECR
-          command: |
-            aws ecr get-login-password --region $AWS_REGION \
-            | docker login --username AWS --password-stdin $AWS_ECR_ACCOUNT_URL
-
-      - run:
-          name: Ensure ECR repo exists
-          command: |
-            source $BASH_ENV
-            aws ecr describe-repositories \
-              --repository-names ${ECR_REPO_NAME} \
-              --region $AWS_REGION \
-            || aws ecr create-repository \
-              --repository-name ${ECR_REPO_NAME} \
-              --region $AWS_REGION
-
-      - run:
-          name: Build Docker Image
-          command: |
-            source $BASH_ENV
-
-            docker build \
-              --build-arg FRAPPE_PATH=https://github.com/frappe/frappe \
-              --build-arg FRAPPE_BRANCH=version-15 \
-              --build-arg APPS_JSON_BASE64=$APPS_JSON_BASE64 \
-              --build-arg GITHUB_TOKEN=${GITHUB_TOKEN} \
-              -t $AWS_ECR_ACCOUNT_URL/${ECR_REPO_NAME}:$IMAGE_TAG \
-              -f images/layered/Containerfile \
-              .
-
-      - run:
-          name: Push Docker Image
-          command: |
-            source $BASH_ENV
-
-            IMAGE_URL=$AWS_ECR_ACCOUNT_URL/${ECR_REPO_NAME}:$IMAGE_TAG
-            echo "Pushing image: $IMAGE_URL"
-            docker push $IMAGE_URL
-
-workflows:
-  build_and_push:
-    when:
-      or:
-        - equal: [ master, << pipeline.git.branch >> ]
-        - << pipeline.parameters.manual_trigger >>
-    jobs:
-      - build_and_push_image:
-          context: SIPRTCIO
+# Disabled: builds moved to .github/workflows/manual-release-build.yml
+# Kept for reference (former CircleCI pipeline).
+#
+# version: 2.1
+#
+# parameters:
+#   manual_trigger:
+#     type: boolean
+#     default: false
+#
+# executors:
+#   default-ubuntu:
+#     machine:
+#       image: default
+#
+# jobs:
+#   build_and_push_image:
+#     executor: default-ubuntu
+#     steps:
+#       - checkout
+#
+#       - run:
+#           name: Verify GitHub Token
+#           command: |
+#             if [ -z "$GITHUB_TOKEN" ]; then
+#               echo "GITHUB_TOKEN is EMPTY"
+#               exit 1
+#             else
+#               echo "GITHUB_TOKEN exists"
+#             fi
+#
+#       - run:
+#           name: Encode apps.json
+#           command: |
+#             export APPS_JSON_BASE64=$(cat apps.json | base64 | tr -d '\n')
+#             echo "export APPS_JSON_BASE64=$APPS_JSON_BASE64" >> $BASH_ENV
+#
+#       - run:
+#           name: Verify apps.json
+#           command: |
+#             source $BASH_ENV
+#             echo "$APPS_JSON_BASE64" | base64 -d
+#
+#       - run:
+#           name: Prepare ECR repository name and image tag
+#           command: |
+#             # ECR repo name from branch (AWS-safe characters)
+#             ECR_REPO_NAME=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_.-]/-/g' | sed 's/^-*//;s/-*$//')
+#
+#             # Incrementing integer per pipeline (same scope as CircleCI UI build number)
+#             echo "export ECR_REPO_NAME=$ECR_REPO_NAME" >> $BASH_ENV
+#             echo "export IMAGE_TAG=${CIRCLE_BUILD_NUM}" >> $BASH_ENV
+#
+#       - run:
+#           name: Login to AWS ECR
+#           command: |
+#             aws ecr get-login-password --region $AWS_REGION \
+#             | docker login --username AWS --password-stdin $AWS_ECR_ACCOUNT_URL
+#
+#       - run:
+#           name: Ensure ECR repo exists
+#           command: |
+#             source $BASH_ENV
+#             aws ecr describe-repositories \
+#               --repository-names ${ECR_REPO_NAME} \
+#               --region $AWS_REGION \
+#             || aws ecr create-repository \
+#               --repository-name ${ECR_REPO_NAME} \
+#               --region $AWS_REGION
+#
+#       - run:
+#           name: Build Docker Image
+#           command: |
+#             source $BASH_ENV
+#
+#             docker build \
+#               --build-arg FRAPPE_PATH=https://github.com/frappe/frappe \
+#               --build-arg FRAPPE_BRANCH=version-15 \
+#               --build-arg APPS_JSON_BASE64=$APPS_JSON_BASE64 \
+#               --build-arg GITHUB_TOKEN=${GITHUB_TOKEN} \
+#               -t $AWS_ECR_ACCOUNT_URL/${ECR_REPO_NAME}:$IMAGE_TAG \
+#               -f images/layered/Containerfile \
+#               .
+#
+#       - run:
+#           name: Push Docker Image
+#           command: |
+#             source $BASH_ENV
+#
+#             IMAGE_URL=$AWS_ECR_ACCOUNT_URL/${ECR_REPO_NAME}:$IMAGE_TAG
+#             echo "Pushing image: $IMAGE_URL"
+#             docker push $IMAGE_URL
+#
+# workflows:
+#   build_and_push:
+#     when:
+#       or:
+#         - equal: [ master, << pipeline.git.branch >> ]
+#         - << pipeline.parameters.manual_trigger >>
+#     jobs:
+#       - build_and_push_image:
+#           context: SIPRTCIO
